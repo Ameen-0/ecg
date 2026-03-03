@@ -1,17 +1,11 @@
-City,HospitalName,Distance,Phone
-Kochi,Medical Trust Hospital,2.5,0484-2358001
-Kochi,Lisie Hospital,3.8,0484-2402044
-Kochi,Aster Medcity,8.5,0484-6699999
-Kochi,Amrita Hospital,9.2,0484-2851234
-Thiruvananthapuram,Sree Chitra Hospital,3.1,0471-2443152
-Thiruvananthapuram,Medical College,4.5,0471-2528300
-Thiruvananthapuram,KIMSHEALTH,6.2,0471-2940000
-Delhi,AIIMS,1.5,011-26588500
-Delhi,Fortis Heart Institute,5.8,011-47135000
-Delhi,Max Super Speciality,8.2,011-26515050
-Mumbai,Jaslok Hospital,2.1,022-66573333
-Mumbai,Nanavati Hospital,4.5,022-26267500
-Mumbai,Kokilaben Hospital,6.2,022-30666666
-Bangalore,Narayana Health,4.8,080-71222222
-Bangalore,Jayadeva Institute,3.2,080-22977400
-Bangalore,Fortis Hospital,7.5,080-66214444
+name,latitude,longitude,phone,specialty
+City Heart Institute,12.9716,77.5946,080-22334455,Cardiology
+General Hospital,12.9765,77.5912,080-11223344,Emergency
+Apollo Cardiac Center,12.9689,77.5987,080-99887766,Cardiac Care
+AIIMS Delhi,28.5672,77.2100,011-26588500,Multi-Specialty
+Fortis Hospital,28.5629,77.0799,011-42776222,Cardiology
+Max Hospital,28.5678,77.2445,011-26515511,Cardiac Sciences
+Medical Trust Hospital,9.9658,76.2862,0484-2358001,Cardiology
+Lisie Hospital,9.9925,76.2875,0484-2402044,Heart Institute
+Aster Medcity,10.0536,76.2662,0484-6699999,Cardiac Sciences
+Amrita Hospital,10.0326,76.2991,0484-2851234,Advanced Cardiac Care
