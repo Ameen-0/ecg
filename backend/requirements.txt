@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+python-multipart
+opencv-python
+numpy
+pandas
+neurokit2
+scipy
+scikit-learn
+requests
+Pillow
+fpdf
+joblib
+matplotlib
+

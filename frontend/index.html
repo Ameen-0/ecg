@@ -1,0 +1,90 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECG Digitalization and Intelligent Cardiac Awareness System</title>
+    <link rel="stylesheet" href="src/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Intelligent Cardiac Awareness System</h1>
+            <p>Digitalizing Paper ECGs for Smart Health Monitoring</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <div id="drop-zone" class="drop-zone">
+                    <div class="drop-zone-content">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <p>Drag & Drop ECG Rhythm Strip or Click to Upload</p>
+                        <input type="file" id="file-input" hidden accept="image/*">
+                    </div>
+                </div>
+                
+                <div class="controls">
+                    <input type="text" id="city-input" placeholder="Enter City (e.g., Kochi)" value="Kochi">
+                    <button id="analyze-btn">Analyze ECG</button>
+                </div>
+            </section>
+
+            <section id="loading" class="loading hidden">
+                <div class="spinner"></div>
+                <p>Digitalizing & Analyzing Signal...</p>
+            </section>
+
+            <section id="results" class="results-section hidden">
+                <div class="result-card main-stats">
+                    <div class="stat">
+                        <span class="label">BPM</span>
+                        <span id="bpm-val" class="value">--</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Condition</span>
+                        <span id="status-val" class="value">--</span>
+                    </div>
+                </div>
+
+                <div class="secondary-stats">
+                    <div class="card stat-card">
+                        <h3>Stress Index</h3>
+                        <p id="stress-val">--</p>
+                        <small>Confidence: <span id="conf-val">--</span></small>
+                    </div>
+                    
+                    <div class="card stat-card">
+                        <h3>AQI Dashboard</h3>
+                        <p id="aqi-level" class="aqi-level">--</p>
+                        <p id="aqi-msg" class="msg">--</p>
+                    </div>
+                </div>
+
+                <div class="card advisory-card">
+                    <h3>Health Advisory</h3>
+                    <p id="health-adv">--</p>
+                </div>
+
+                <div id="hospital-section" class="card hospital-card hidden">
+                    <h3>Emergency Heart Care (Nearest)</h3>
+                    <ul id="hospital-list"></ul>
+                </div>
+            </section>
+
+            <section id="error" class="error-section hidden">
+                <div class="error-card">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <p id="error-msg"></p>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="src/main.js"></script>
+</body>
+</html>
