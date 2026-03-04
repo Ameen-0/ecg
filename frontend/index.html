@@ -322,6 +322,7 @@
 
         <!-- Error Message -->
         <div class="error-message" id="errorMessage"></div>
+        <div id="resultBox"></div>
 
         <!-- Results Dashboard -->
         <div id="dashboard" style="display: none;">
@@ -381,7 +382,9 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000';
+        const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
+            ? "http://127.0.0.1:8080"
+            : "https://your-production-domain.com";
 
         // DOM Elements
         const uploadArea = document.getElementById('uploadArea');
@@ -407,110 +410,65 @@
             e.preventDefault();
             uploadArea.style.borderColor = 'rgba(255, 255, 255, 0.1)';
             const file = e.dataTransfer.files[0];
-            if (file) handleFile(file);
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+                uploadECG(formData);
+            }
         });
 
         // File selection
         fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) handleFile(file);
+            if (file) {
+                const formData = new FormData();
+                formData.append('file', file);
+                uploadECG(formData);
+            }
         });
 
-        async function handleFile(file) {
-            // Show loading
-            uploadArea.style.display = 'none';
-            loading.style.display = 'block';
-            dashboard.style.display = 'none';
-            errorMessage.style.display = 'none';
-
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('city', 'Default');
-
-            // Determine endpoint
-            const isImage = file.type.startsWith('image/');
-            const endpoint = isImage ? '/analyze/image' : '/analyze/digital';
-
+        async function uploadECG(formData) {
             try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
-                    method: 'POST',
+                // Show loading
+                uploadArea.style.display = 'none';
+                loading.style.display = 'block';
+
+                const response = await fetch(`${API_BASE}/analyze`, {
+                    method: "POST",
                     body: formData
                 });
 
                 const data = await response.json();
+                const resultBox = document.getElementById("resultBox");
 
-                if (data.success) {
-                    updateDashboard(data);
-                } else {
-                    showError(data.error || 'Analysis failed');
+                if (!data.success) {
+                    resultBox.innerHTML = `
+                        <div class="error" style="color: #FF5C5C; text-align: center; margin-top: 20px; font-size: 1.2rem;">
+                            ${data.message}<br>
+                            <span style="font-size: 0.8rem; color: #FFAAAA;">${data.error || ""}</span>
+                        </div>
+                    `;
+                    uploadArea.style.display = 'block';
+                    loading.style.display = 'none';
+                    return;
                 }
-            } catch (error) {
-                showError('Network error: ' + error.message);
-            } finally {
+
+                resultBox.innerHTML = `
+                    <div class="success" style="color: #00D68F; text-align: center; margin-top: 20px; font-size: 1.2rem; line-height: 1.6;">
+                        Average Heart Rate: ${data.average_heart_rate.toFixed(2)} bpm<br>
+                        Average Quality: ${data.average_quality.toFixed(2)}<br>
+                        Valid Leads: ${data.valid_leads}
+                    </div>
+                `;
+                uploadArea.style.display = 'block';
+                loading.style.display = 'none';
+
+            } catch (err) {
+                document.getElementById("resultBox").innerHTML =
+                    `<div class="error" style="color: #FF5C5C; text-align: center; margin-top: 20px; font-size: 1.2rem;">Unexpected error occurred</div>`;
+                uploadArea.style.display = 'block';
                 loading.style.display = 'none';
             }
-        }
-
-        function updateDashboard(data) {
-            // Update heart rate
-            document.getElementById('heartRateValue').textContent = data.analysis.bpm.toFixed(1);
-
-            // Update abnormality with color
-            const abnormalityEl = document.getElementById('abnormalityValue');
-            abnormalityEl.textContent = data.analysis.condition;
-
-            // Color code
-            if (data.analysis.condition.includes('Normal')) {
-                abnormalityEl.className = 'metric-value status-normal';
-            } else if (data.analysis.condition.includes('Bradycardia')) {
-                abnormalityEl.className = 'metric-value status-warning';
-            } else if (data.analysis.condition.includes('Tachycardia')) {
-                abnormalityEl.className = 'metric-value status-danger';
-            } else {
-                abnormalityEl.className = 'metric-value status-warning';
-            }
-
-            // Update stress
-            document.getElementById('stressValue').textContent = data.analysis.stress;
-
-            // Update confidence
-            document.getElementById('confidenceValue').textContent = data.analysis.confidence + '%';
-
-            // Update guidance text
-            let guidance = '';
-            if (data.analysis.condition.includes('Normal')) {
-                guidance = 'Your ECG appears normal. Maintain a healthy lifestyle and regular checkups.';
-            } else if (data.analysis.condition.includes('Bradycardia')) {
-                guidance = 'Low heart rate detected. Consider consulting a doctor if you experience symptoms.';
-            } else if (data.analysis.condition.includes('Tachycardia')) {
-                guidance = 'Elevated heart rate detected. Rest and monitor your symptoms.';
-            } else {
-                guidance = 'Please consult a healthcare professional for evaluation.';
-            }
-            document.getElementById('guidanceText').textContent = guidance;
-
-            // Update AQI
-            document.getElementById('aqiValue').textContent = `${data.aqi.level} (${data.aqi.value})`;
-            document.getElementById('aqiAdvisory').textContent = data.aqi.advisory;
-
-            // Update hospital
-            if (data.hospitals && data.hospitals.length > 0) {
-                document.getElementById('hospitalName').textContent = data.hospitals[0].name;
-                document.getElementById('hospitalDistance').textContent =
-                    data.hospitals[0].distance + ' km away';
-            } else {
-                document.getElementById('hospitalName').textContent = 'No hospital needed';
-                document.getElementById('hospitalDistance').textContent = 'Your heart rate is normal';
-            }
-
-            // Show dashboard
-            dashboard.style.display = 'block';
-        }
-
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.style.display = 'block';
-            uploadArea.style.display = 'block';
         }
     </script>
 </body>

@@ -1,27 +1,13 @@
-
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+import cv2
+import numpy as np
+import neurokit2 as nk
+from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import os
-import shutil
-import pandas as pd
-from datetime import datetime
-import sys
 
-# Add to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+app = FastAPI(title="ECG Analysis API")
 
-# Import utilities
-from utils.ecg_processor import ECGProcessor
-from utils.aqi_checker import AQIChecker
-from utils.hospital_finder import HospitalFinder
-import config
-
-# Initialize FastAPI
-app = FastAPI(title="ECG Cardiac Awareness System")
-
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,161 +16,171 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize processors
-ecg_processor = ECGProcessor()
-aqi_checker = AQIChecker()
-hospital_finder = HospitalFinder()
+QUALITY_THRESHOLD = 0.45
+SAMPLING_RATE = 500
 
-# Ensure upload directory exists
-os.makedirs(config.UPLOAD_PATH, exist_ok=True)
 
-@app.get("/")
-async def root():
-    return {"message": "ECG Cardiac Awareness System API", "status": "running"}
+def remove_grid(image):
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+    lower_red1 = np.array([0, 40, 40])
+    upper_red1 = np.array([10, 255, 255])
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
 
-@app.post("/analyze/image")
-async def analyze_image(
-    file: UploadFile = File(...),
-    city: str = Form("Default")
-):
-    """
-    Analyze ECG from uploaded image
-    """
-    try:
-        # Save uploaded file
-        file_path = os.path.join(config.UPLOAD_PATH, f"image_{datetime.now().timestamp()}.jpg")
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        # Process image
-        result, message = ecg_processor.process_image(file_path)
-        
-        # Clean up
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
-        if result is None:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": message}
-            )
-        
-        # Get AQI advisory
-        aqi_info = aqi_checker.get_aqi_advisory(city=city)
-        
-        # Get hospital suggestions
-        hospital_info = hospital_finder.get_hospitals_for_bpm(result['bpm'])
-        
-        # Get combined warning
-        combined_warning = aqi_checker.get_combined_warning(
-            result['bpm'], 
-            aqi_info['aqi']
-        )
-        
-        # Prepare response
-        response = {
-            "success": True,
-            "analysis": {
-                "bpm": result['bpm'],
-                "condition": result['condition'],
-                "stress": result['stress'],
-                "confidence": result['confidence']
-            },
-            "aqi": {
-                "level": aqi_info['level'],
-                "value": aqi_info['aqi'],
-                "advisory": aqi_info['advisory']
-            },
-            "warning": combined_warning,
-            "hospitals": hospital_info['hospitals']
-        }
-        
-        return response
-        
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": f"Server error: {str(e)}"}
-        )
+    lower_red2 = np.array([170, 40, 40])
+    upper_red2 = np.array([180, 255, 255])
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
 
-@app.post("/analyze/digital")
-async def analyze_digital(
-    file: UploadFile = File(...),
-    city: str = Form("Default")
-):
-    """
-    Analyze ECG from digital CSV file
-    """
-    try:
-        # Save uploaded file
-        file_path = os.path.join(config.UPLOAD_PATH, f"signal_{datetime.now().timestamp()}.csv")
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    mask = mask1 + mask2
+    image[mask > 0] = [255, 255, 255]
+
+    return image
+
+
+def split_leads(image, rows=4):
+    h, w, _ = image.shape
+    row_height = h // rows
+    return [image[i*row_height:(i+1)*row_height, :] for i in range(rows)]
+
+
+import scipy.signal
+
+def extract_waveform(lead_img):
+    gray = cv2.cvtColor(lead_img, cv2.COLOR_BGR2GRAY)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    gray = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+
+    thresh = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        15,
+        2
+    )
+
+    h, w = thresh.shape
+    signal = []
+
+    for x in range(w):
+        ys = np.where(thresh[:, x] > 0)[0]
+        if len(ys) > 0:
+            signal.append(h - np.mean(ys))
+        else:
+            signal.append(signal[-1] if signal else 0)
+
+    signal = np.array(signal)
+
+    if len(signal) == 0 or np.isnan(np.std(signal)) or np.std(signal) == 0:
+        return None
+
+    signal = (signal - np.mean(signal)) / np.std(signal)
+    
+    # Resample to 5000 length to correctly align image width (approx 10s) with 500Hz
+    if len(signal) != 5000:
+        signal = scipy.signal.resample(signal, 5000)
+
+    signal = nk.signal_smooth(signal, method="savgol", size=11)
+    return signal
+
+
+def process_ecg_image(image):
+    if image is None:
+        return {"success": False, "message": "Failed to decode image"}
         
-        # Read CSV
+    image = remove_grid(image)
+    leads = split_leads(image)
+
+    results = []
+    qualities = []
+
+    for i, lead in enumerate(leads):
         try:
-            df = pd.read_csv(file_path)
-            signal = df.iloc[:, 0].values
+            signal = extract_waveform(lead)
+            if signal is None or len(signal) == 0:
+                continue
+
+            # Filtering for quality check and peak detection
+            signal_filtered = nk.signal_filter(
+                signal,
+                lowcut=0.5,
+                highcut=40,
+                sampling_rate=SAMPLING_RATE
+            )
+
+            # Quality calculation (average of per-sample quality)
+            quality_array = nk.ecg_quality(signal_filtered, sampling_rate=SAMPLING_RATE)
+            quality = float(np.nanmean(quality_array)) if len(quality_array) > 0 else 0.0
+            qualities.append(quality)
+
+            if quality < QUALITY_THRESHOLD:
+                continue
+
+            # Robust Heart Rate calculation using peaks instead of full process
+            _, rpeaks = nk.ecg_peaks(signal_filtered, sampling_rate=SAMPLING_RATE)
+            peaks = rpeaks.get("ECG_R_Peaks", [])
+            
+            if len(peaks) < 2:
+                # Not enough peaks to compute a rate for this lead
+                continue
+                
+            hr_array = nk.signal_rate(peaks, sampling_rate=SAMPLING_RATE, desired_length=len(signal_filtered))
+            hr = float(np.nanmean(hr_array))
+            
+            if np.isnan(hr) or hr <= 0:
+                continue
+
+            results.append({
+                "heart_rate": hr,
+                "quality": quality
+            })
+
         except Exception as e:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": f"Invalid CSV format: {str(e)}"}
-            )
-        
-        # Process signal
-        result, message = ecg_processor.process_digital(signal)
-        
-        # Clean up
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
-        if result is None:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": message}
-            )
-        
-        # Get AQI advisory
-        aqi_info = aqi_checker.get_aqi_advisory(city=city)
-        
-        # Get hospital suggestions
-        hospital_info = hospital_finder.get_hospitals_for_bpm(result['bpm'])
-        
-        # Get combined warning
-        combined_warning = aqi_checker.get_combined_warning(
-            result['bpm'], 
-            aqi_info['aqi']
-        )
-        
-        # Prepare response
-        response = {
-            "success": True,
-            "analysis": {
-                "bpm": result['bpm'],
-                "condition": result['condition'],
-                "stress": result['stress'],
-                "confidence": result['confidence']
-            },
-            "aqi": {
-                "level": aqi_info['level'],
-                "value": aqi_info['aqi'],
-                "advisory": aqi_info['advisory']
-            },
-            "warning": combined_warning,
-            "hospitals": hospital_info['hospitals']
+            print(f"Error processing lead {i}: {e}")
+            continue
+
+    if len(results) == 0:
+        q_str = ", ".join([f"{q:.3f}" for q in qualities]) if qualities else "None"
+        return {
+            "success": False,
+            "message": f"No valid ECG leads detected. Qualities: {q_str}",
+            "valid_leads": 0
         }
-        
-        return response
-        
+
+    valid_hrs = [r["heart_rate"] for r in results]
+    valid_qs = [r["quality"] for r in results]
+
+    return {
+        "success": True,
+        "average_heart_rate": float(np.mean(valid_hrs)),
+        "average_quality": float(np.mean(valid_qs)),
+        "valid_leads": len(results)
+    }
+
+
+@app.post("/analyze")
+async def analyze_ecg(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        result = process_ecg_image(image)
+
+        return JSONResponse(status_code=200, content=result)
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": f"Server error: {str(e)}"}
+            status_code=200,
+            content={
+                "success": False,
+                "message": "Processing failed",
+                "error": str(e)
+            }
         )
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
