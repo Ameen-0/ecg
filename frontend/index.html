@@ -306,6 +306,34 @@
 
 <body>
     <div class="container">
+        <!-- Location Selector -->
+        <div class="location-selector" style="margin-bottom: 20px; text-align: center;">
+            <label style="color: white; font-size: 16px; margin-right: 10px;">Select Your Location:</label>
+            <select id="citySelect"
+                style="padding: 10px; border-radius: 10px; background: rgba(0,0,0,0.3); color: white; border: 1px solid #00D68F; font-size: 16px;">
+                <option value="Kochi">Kochi</option>
+                <option value="Thiruvananthapuram">Thiruvananthapuram</option>
+                <option value="Kozhikode">Kozhikode</option>
+                <option value="Kannur">Kannur</option>
+                <option value="Kollam">Kollam</option>
+                <option value="Thrissur">Thrissur</option>
+                <option value="Alappuzha">Alappuzha</option>
+                <option value="Palakkad">Palakkad</option>
+                <option value="Malappuram">Malappuram</option>
+                <option value="Kottayam">Kottayam</option>
+                <option value="Idukki">Idukki</option>
+                <option value="Wayanad">Wayanad</option>
+                <option value="Pathanamthitta">Pathanamthitta</option>
+                <option value="Kasaragod">Kasaragod</option>
+                <option value="Delhi">Delhi</option>
+                <option value="Mumbai">Mumbai</option>
+                <option value="Bangalore">Bangalore</option>
+                <option value="Chennai">Chennai</option>
+                <option value="Hyderabad">Hyderabad</option>
+                <option value="Kolkata">Kolkata</option>
+            </select>
+        </div>
+
         <!-- Upload Area -->
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">📤</div>
@@ -383,7 +411,7 @@
 
     <script>
         const API_BASE = (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-            ? "http://127.0.0.1:8080"
+            ? "http://127.0.0.1:8000"
             : "https://your-production-domain.com";
 
         // DOM Elements
@@ -413,6 +441,7 @@
             if (file) {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('city', document.getElementById('citySelect').value);
                 uploadECG(formData);
             }
         });
@@ -423,6 +452,7 @@
             if (file) {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('city', document.getElementById('citySelect').value);
                 uploadECG(formData);
             }
         });
@@ -432,6 +462,8 @@
                 // Show loading
                 uploadArea.style.display = 'none';
                 loading.style.display = 'block';
+                dashboard.style.display = 'none';
+                errorMessage.style.display = 'none';
 
                 const response = await fetch(`${API_BASE}/analyze`, {
                     method: "POST",
@@ -439,35 +471,47 @@
                 });
 
                 const data = await response.json();
-                const resultBox = document.getElementById("resultBox");
+                loading.style.display = 'none';
 
                 if (!data.success) {
-                    resultBox.innerHTML = `
-                        <div class="error" style="color: #FF5C5C; text-align: center; margin-top: 20px; font-size: 1.2rem;">
-                            ${data.message}<br>
-                            <span style="font-size: 0.8rem; color: #FFAAAA;">${data.error || ""}</span>
-                        </div>
-                    `;
+                    errorMessage.textContent = data.message || "Processing failed";
+                    errorMessage.style.display = 'block';
                     uploadArea.style.display = 'block';
-                    loading.style.display = 'none';
                     return;
                 }
 
-                resultBox.innerHTML = `
-                    <div class="success" style="color: #00D68F; text-align: center; margin-top: 20px; font-size: 1.2rem; line-height: 1.6;">
-                        Average Heart Rate: ${data.average_heart_rate.toFixed(2)} bpm<br>
-                        Average Quality: ${data.average_quality.toFixed(2)}<br>
-                        Valid Leads: ${data.valid_leads}
-                    </div>
-                `;
+                // Step 12 — DASHBOARD INTEGRATION
+                // Update Dashboard Values using new JSON format
+                document.getElementById('heartRateValue').textContent = data.heart_rate;
+                document.getElementById('abnormalityValue').textContent = data.detected_abnormality;
+                document.getElementById('stressValue').textContent = data.stress_level;
+                document.getElementById('confidenceValue').textContent = data.signal_confidence + "%";
+                document.getElementById('guidanceText').textContent = data.guidance || "No guidance available.";
+
+                // Status coloring for abnormality
+                const abnormalityEl = document.getElementById('abnormalityValue');
+                if (data.detected_abnormality === "Normal") {
+                    abnormalityEl.className = "metric-value status-normal";
+                } else {
+                    abnormalityEl.className = "metric-value status-danger";
+                }
+
+                // Update AQI & Hospital Values
+                document.getElementById('aqiValue').textContent = (data.city || "Unknown") + " (" + (data.aqi || 0) + ")";
+                document.getElementById('aqiAdvisory').textContent = data.aqi_message || "Advisory unavailable";
+                document.getElementById('hospitalName').textContent = data.nearest_hospital || "Not Found";
+                document.getElementById('hospitalDistance').textContent = "Phone: " + (data.hospital_phone || "N/A");
+
+                // Show dashboard
+                dashboard.style.display = 'block';
                 uploadArea.style.display = 'block';
-                loading.style.display = 'none';
 
             } catch (err) {
-                document.getElementById("resultBox").innerHTML =
-                    `<div class="error" style="color: #FF5C5C; text-align: center; margin-top: 20px; font-size: 1.2rem;">Unexpected error occurred</div>`;
-                uploadArea.style.display = 'block';
+                console.error(err);
                 loading.style.display = 'none';
+                uploadArea.style.display = 'block';
+                errorMessage.textContent = "Could not connect to the analysis server. Please ensure the backend is running.";
+                errorMessage.style.display = 'block';
             }
         }
     </script>

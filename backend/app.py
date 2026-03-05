@@ -27,20 +27,120 @@ def generate_health_recommendation(ecg_condition, aqi_category):
     message = []
     
     # ECG Context
-    if ecg_condition == "Normal ECG":
+    if ecg_condition == "Normal":
         message.append("Your ECG appears normal. Maintain a healthy lifestyle.")
     else:
-        message.append(f"Abnormal pattern detected ({ecg_condition}). Medical consultation is recommended.")
+        message.append(f"Cardiac pattern detected: {ecg_condition}. Medical consultation is recommended.")
         
     # AQI Context
-    if aqi_category in ["Good", "Moderate"]:
-        pass # No need to alarm
-    elif aqi_category in ["Unhealthy for Sensitive Groups", "Unhealthy"]:
-        message.append("Air quality is currently poor. Consider reducing outdoor exertion.")
-    elif aqi_category in ["Very Unhealthy", "Hazardous"]:
-        message.append("Air quality is critical. Avoid outdoor exposure to protect heart health.")
+    if aqi_category not in ["Good", "Moderate"]:
+        message.append(f"Air quality is {aqi_category.lower()}. Reduce strenuous outdoor activity.")
         
     return " ".join(message)
+
+import csv
+
+def load_aqi(city):
+    aqi_val = 50
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), 'data', 'aqi.csv')
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['City'].strip().lower() == city.lower():
+                    aqi_val = int(row['AQI'])
+                    break
+    except Exception as e:
+        print(f"Error loading AQI: {e}")
+    return aqi_val
+
+def get_aqi_message(aqi):
+    if aqi < 50:
+        return "Good air quality. Safe for outdoor activities."
+    elif aqi <= 100:
+        return "Moderate air quality. Sensitive people should limit outdoor exertion."
+    else:
+        return "Poor air quality. Consider limiting outdoor activity."
+
+HOSPITAL_MAPPING = {
+    "kochi": "Medical Trust Hospital",
+    "thiruvananthapuram": "KIMS Hospital",
+    "kozhikode": "Aster MIMS",
+    "kannur": "Kannur Medical College",
+    "kollam": "Medicity",
+    "thrissur": "Amala Institute",
+    "alappuzha": "Medical College Alappuzha",
+    "palakkad": "PK Das Hospital",
+    "malappuram": "MES Medical College",
+    "kottayam": "Caritas Hospital",
+    "idukki": "Idukki District Hospital",
+    "wayanad": "Wayanad Medical College",
+    "pathanamthitta": "Muthoot Hospital",
+    "kasaragod": "Kasaragod Care Hospital",
+    "delhi": "AIIMS Delhi",
+    "mumbai": "Lilavati Hospital",
+    "bangalore": "Narayana Hrudayalaya",
+    "chennai": "Apollo Hospitals",
+    "hyderabad": "Care Hospitals",
+    "kolkata": "AMRI Hospitals"
+}
+
+def find_nearest_hospital(city):
+    nearest = HOSPITAL_MAPPING.get(city.lower(), "Medical Trust Hospital")
+    phone = "0484-2358001"
+    try:
+        csv_path = os.path.join(os.path.dirname(__file__), 'data', 'hospitals.csv')
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['name'] == nearest:
+                    phone = row['phone']
+                    break
+    except Exception as e:
+        print(f"Error loading hospital data: {e}")
+    return nearest, phone
+
+def save_uploaded_file(file):
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+    return filepath
+
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    file = request.files["file"]
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+    
+    city = request.form.get("city", "Kochi")
+    
+    path = save_uploaded_file(file)
+    result = process_ecg_image(path)
+    
+    if "error" in result:
+        return jsonify(result), 400
+        
+    aqi = load_aqi(city)
+    aqi_msg = get_aqi_message(aqi)
+    h_name, h_phone = find_nearest_hospital(city)
+    
+    full_result = {
+        "heart_rate": result.get("heart_rate", 0),
+        "abnormality": result.get("detected_abnormality", "Unknown"),
+        "stress_level": result.get("stress_level", "Unknown"),
+        "signal_confidence": result.get("signal_confidence", 0),
+        "city": city,
+        "aqi": aqi,
+        "aqi_message": aqi_msg,
+        "nearest_hospital": h_name,
+        "hospital_phone": h_phone,
+        "signal": result.get("signal", []),
+        "peaks": result.get("peaks", []),
+        "guidance": result.get("guidance", "")
+    }
+    
+    return jsonify(full_result)
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -57,15 +157,22 @@ def upload_file():
     if lat: lat = float(lat)
     if lon: lon = float(lon)
     
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
+    filepath = save_uploaded_file(file)
     
     try:
         # 1. Process ECG
-        ecg_results = process_ecg_image(filepath)
+        result = process_ecg_image(filepath)
         
-        if 'error' in ecg_results:
-             return jsonify(ecg_results), 400
+        # Translate to Flask-expected keys
+        ecg_results = {
+            "bpm": result.get("heart_rate"),
+            "condition": result.get("detected_abnormality"),
+            "stress": result.get("stress_level"),
+            "confidence": result.get("signal_confidence")
+        }
+        
+        if 'error' in result:
+             return jsonify(result), 400
 
         # 2. Get Real AQI
         aqi_data = get_real_aqi(lat, lon)
@@ -85,7 +192,7 @@ def upload_file():
             "AQI_status": aqi_data['category'],
             "AQI_recommendation": aqi_data['recommendation'],
             "location": aqi_data['location'],
-            "hospitals": hospitals if ecg_results['condition'] != "Normal ECG" else [],
+            "hospitals": hospitals if ecg_results['condition'] != "Normal" else [],
             "recommendation": rec_text
         }
         

@@ -1,11 +1,21 @@
 name,latitude,longitude,phone,specialty
-City Heart Institute,12.9716,77.5946,080-22334455,Cardiology
-General Hospital,12.9765,77.5912,080-11223344,Emergency
-Apollo Cardiac Center,12.9689,77.5987,080-99887766,Cardiac Care
-AIIMS Delhi,28.5672,77.2100,011-26588500,Multi-Specialty
-Fortis Hospital,28.5629,77.0799,011-42776222,Cardiology
-Max Hospital,28.5678,77.2445,011-26515511,Cardiac Sciences
-Medical Trust Hospital,9.9658,76.2862,0484-2358001,Cardiology
-Lisie Hospital,9.9925,76.2875,0484-2402044,Heart Institute
-Aster Medcity,10.0536,76.2662,0484-6699999,Cardiac Sciences
-Amrita Hospital,10.0326,76.2991,0484-2851234,Advanced Cardiac Care
+Medical Trust Hospital,9.965,76.298,0484-2358001,Cardiology
+KIMS Hospital,8.520,76.920,0471-2952222,Cardiology
+Aster MIMS,11.248,75.805,0495-2488000,Cardiology
+Kannur Medical College,11.838,75.385,0497-2855000,Cardiology
+Medicity,8.878,76.606,0474-2735100,Cardiology
+Amala Institute,10.556,76.175,0487-2304000,Cardiology
+Medical College Alappuzha,9.450,76.350,0477-2282000,Cardiology
+PK Das Hospital,10.771,76.438,0466-2342000,Cardiology
+MES Medical College,10.975,76.183,04933-298300,Cardiology
+Caritas Hospital,9.638,76.545,0481-2795325,Cardiology
+Idukki District Hospital,9.851,76.974,04862-232145,Cardiology
+Wayanad Medical College,11.666,76.082,04936-202271,Cardiology
+Muthoot Hospital,9.261,76.786,0468-2224095,Cardiology
+Kasaragod Care Hospital,12.508,74.992,04994-230300,Cardiology
+AIIMS Delhi,28.566,77.210,011-26588500,Cardiology
+Lilavati Hospital,19.050,72.828,022-26751000,Cardiology
+Narayana Hrudayalaya,12.809,77.683,080-71222222,Cardiology
+Apollo Hospitals,13.061,80.252,044-28293333,Cardiology
+Care Hospitals,17.411,78.441,040-61656565,Cardiology
+AMRI Hospitals,22.518,88.361,033-66800000,Cardiology

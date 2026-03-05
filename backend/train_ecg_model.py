@@ -1,101 +1,68 @@
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
+from tensorflow.keras.models import Model
 import os
-import wfdb
-import numpy as np
-import pandas as pd
-from scipy.signal import find_peaks
-from scipy.stats import entropy
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-import joblib
 
-DATASET_PATH = "../datasets/mitbih"
+train_dir = "../dataset/train"
+val_dir = "../dataset/test"
 
-def extract_features(signal, fs=360):
-    signal = np.array(signal)
+IMG_SIZE = 224
+BATCH_SIZE = 32
 
-    peaks, _ = find_peaks(signal, distance=fs*0.6)
-
-    if len(peaks) < 2:
-        return None
-
-    rr_intervals = np.diff(peaks) / fs
-
-    heart_rate = 60 / np.mean(rr_intervals)
-    rr_mean = np.mean(rr_intervals)
-    rr_std = np.std(rr_intervals)
-    signal_var = np.var(signal)
-    signal_entropy = entropy(np.histogram(signal, bins=50)[0])
-
-    return [
-        heart_rate,
-        rr_mean,
-        rr_std,
-        signal_var,
-        signal_entropy
-    ]
-
-X = []
-y = []
-
-print("Reading MITBIH dataset...")
-
-records = os.listdir(DATASET_PATH)
-
-records = [r.replace(".dat", "") for r in records if ".dat" in r]
-
-for record in records:
-
-    try:
-        record_path = os.path.join(DATASET_PATH, record)
-
-        data = wfdb.rdrecord(record_path)
-        signal = data.p_signal[:, 0]
-
-        features = extract_features(signal)
-
-        if features:
-            X.append(features)
-
-            hr = features[0]
-
-            if hr < 60:
-                label = 0  # Bradycardia
-            elif hr > 100:
-                label = 2  # Tachycardia
-            else:
-                label = 1  # Normal
-
-            y.append(label)
-
-    except:
-        pass
-
-X = np.array(X)
-y = np.array(y)
-
-print("Total samples:", len(X))
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=10,
+    zoom_range=0.1,
+    horizontal_flip=True
 )
 
-model = RandomForestClassifier(
-    n_estimators=200,
-    max_depth=10,
-    random_state=42
+val_datagen = ImageDataGenerator(rescale=1./255)
+
+train_data = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(IMG_SIZE, IMG_SIZE),
+    batch_size=BATCH_SIZE,
+    class_mode="categorical"
 )
 
-model.fit(X_train, y_train)
+val_data = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=(IMG_SIZE, IMG_SIZE),
+    batch_size=BATCH_SIZE,
+    class_mode="categorical"
+)
 
-predictions = model.predict(X_test)
+base_model = MobileNetV2(
+    weights="imagenet",
+    include_top=False,
+    input_shape=(224,224,3)
+)
 
-accuracy = accuracy_score(y_test, predictions)
+base_model.trainable = False
 
-print("Model Accuracy:", accuracy * 100, "%")
+x = base_model.output
+x = GlobalAveragePooling2D()(x)
+x = Dense(128, activation="relu")(x)
+predictions = Dense(4, activation="softmax")(x)
+
+model = Model(inputs=base_model.input, outputs=predictions)
+
+model.compile(
+    optimizer="adam",
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+model.fit(
+    train_data,
+    validation_data=val_data,
+    epochs=10
+)
 
 os.makedirs("models", exist_ok=True)
 
-joblib.dump(model, "models/ecg_model.pkl")
+model.save("models/ecg_classifier.h5")
 
-print("Model saved at backend/models/ecg_model.pkl")
+print("ECG CNN model training complete")

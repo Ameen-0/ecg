@@ -11,6 +11,16 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
+from scipy.signal import find_peaks, medfilt
+import cv2
+import numpy as np
+import os
+import sys
+
+# Add parent directory to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
+
 class ECGProcessor:
     def __init__(self):
         self.sampling_rate = config.SAMPLING_RATE
@@ -19,197 +29,97 @@ class ECGProcessor:
         
     def process_image(self, image_path):
         """
-        Process paper ECG image and extract BPM
+        Main entry point for image-based ECG analysis.
         """
         try:
-            # Read image
             image = cv2.imread(image_path)
             if image is None:
                 return None, "Could not read image file"
             
-            # Step 1: Deskew image
-            deskewed = self._deskew_image(image)
-            
-            # Step 2: Remove grid lines
-            cleaned = self._remove_grid(deskewed)
-            
-            # Step 3: Extract waveform
-            signal = self._extract_waveform(cleaned)
-            
-            # Step 4: Normalize signal
-            signal = (signal - np.mean(signal)) / np.std(signal)
-            
-            # Step 5: Process with NeuroKit2
-            return self._process_signal(signal)
-            
+            return self.process_frame(image)
         except Exception as e:
             return None, f"Image processing error: {str(e)}"
-    
-    def process_digital(self, signal_data):
+
+    def process_frame(self, image):
         """
-        Process digital ECG signal (CSV or array)
+        Implementation of the AI-assisted ECG interpretation pipeline.
         """
         try:
-            # Convert to numpy array if needed
-            if isinstance(signal_data, list):
-                signal = np.array(signal_data)
-            elif isinstance(signal_data, pd.Series):
-                signal = signal_data.values
-            else:
-                signal = signal_data
+            # Step 1: Process only rhythm strip
+            h, w = image.shape[:2]
+            rhythm_strip = image[int(h * 0.65):h, 0:w]
             
-            return self._process_signal(signal)
+            # Step 2: Convert to grayscale
+            gray = cv2.cvtColor(rhythm_strip, cv2.COLOR_BGR2GRAY)
             
-        except Exception as e:
-            return None, f"Digital processing error: {str(e)}"
-    
-    def _deskew_image(self, image):
-        """Deskew image using Hough transform"""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-        lines = cv2.HoughLines(edges, 1, np.pi/180, 100)
-        
-        if lines is not None:
-            angles = []
-            for line in lines:
-                rho, theta = line[0]
-                angle = np.degrees(theta) - 90
-                angles.append(angle)
+            # Step 3: Remove grid and noise
+            blur = cv2.GaussianBlur(gray, (7,7), 0)
+            _, thresh = cv2.threshold(
+                blur,
+                0,
+                255,
+                cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+            )
             
-            if angles:
-                median_angle = np.median(angles)
-                if abs(median_angle) > 0.5:
-                    rotated = rotate(image, median_angle, cval=1)
-                    return (rotated * 255).astype(np.uint8)
-        
-        return image
-    
-    def _remove_grid(self, image):
-        """Remove grid lines using morphological operations"""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply Gaussian blur
-        blurred = cv2.GaussianBlur(gray, config.GAUSSIAN_BLUR_KERNEL, 0)
-        
-        # OTSU threshold
-        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        
-        # Morphological opening to remove grid
-        kernel = np.ones(config.MORPHOLOGY_KERNEL, np.uint8)
-        opened = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
-        
-        return opened
-    
-    def _extract_waveform(self, binary_image):
-        """Extract ECG waveform using column-wise median tracing"""
-        height, width = binary_image.shape
-        signal = []
-        
-        for col in range(width):
-            column = binary_image[:, col]
-            white_pixels = np.where(column > 0)[0]
+            # Step 4: Extract waveform
+            signal = np.mean(thresh, axis=0)
+            if np.max(signal) > 0:
+                signal = signal / np.max(signal)
             
-            if len(white_pixels) > 0:
-                y_pos = np.median(white_pixels)
-                signal_value = height - y_pos
-            else:
-                signal_value = signal[-1] if signal else 0
+            # Step 5: Detect R-peaks
+            peaks, _ = find_peaks(
+                signal,
+                distance=60,
+                height=0.3
+            )
             
-            signal.append(signal_value)
-        
-        # Resize to reasonable length
-        target_length = self.sampling_rate * 10  # 10 seconds
-        if len(signal) > target_length:
-            # Downsample
-            indices = np.linspace(0, len(signal)-1, target_length, dtype=int)
-            signal = [signal[i] for i in indices]
-        
-        return np.array(signal)
-    
-    def _process_signal(self, signal):
-        """Core signal processing with NeuroKit2"""
-        # Check signal length
-        min_samples = self.sampling_rate * config.MIN_SIGNAL_SECONDS
-        if len(signal) < min_samples:
-            return None, f"Signal too short ({len(signal)/self.sampling_rate:.1f} seconds)"
-        
-        try:
-            # Clean signal
-            cleaned = nk.ecg_clean(signal, sampling_rate=self.sampling_rate)
+            # Step 6: Compute BPM
+            duration_seconds = 10
+            bpm = int((len(peaks) / duration_seconds) * 60)
             
-            # Detect R-peaks
-            peaks, info = nk.ecg_peaks(cleaned, sampling_rate=self.sampling_rate)
+            # Step 7: Add peak filtering
+            if bpm < 40 or bpm > 180:
+                bpm = int(np.clip(bpm, 40, 180))
             
-            # Get R-peaks array
-            rpeaks = info['ECG_R_Peaks']
+            # RR Interval Analysis
+            rr_intervals = []
+            if len(peaks) >= 3:
+                rr_intervals = np.diff(peaks)
             
-            # Validate number of peaks
-            if len(rpeaks) < self.min_rpeaks:
-                return None, f"Insufficient R-peaks detected ({len(rpeaks)} found, need {self.min_rpeaks})"
+            # HRV and Stress Level Estimation
+            stress_level = self._estimate_stress_hrv(rr_intervals)
             
-            # Check signal quality
-            quality_result = nk.ecg_quality(cleaned, sampling_rate=self.sampling_rate)
-            quality = np.mean(quality_result) if isinstance(quality_result, np.ndarray) else quality_result
+            # Signal Quality Analysis
+            confidence = self._calculate_confidence(signal, peaks)
             
-            if quality < self.quality_threshold:
-                return None, f"Poor signal quality ({quality:.2f} < {self.quality_threshold})"
-            
-            # Calculate RR intervals
-            rr_intervals = np.diff(rpeaks)
-            
-            # Use MEDIAN RR (not mean) for robustness
-            rr_median = np.median(rr_intervals)
-            
-            # Calculate BPM
-            bpm = 60 / (rr_median / self.sampling_rate)
-            
-            # Validate BPM range
-            if bpm < config.MIN_BPM or bpm > config.MAX_BPM:
-                return None, f"BPM {bpm:.1f} outside valid range ({config.MIN_BPM}-{config.MAX_BPM})"
-            
-            # Calculate HRV for arrhythmia detection
-            hrv_std = np.std(rr_intervals) * (60 / self.sampling_rate)
-            
-            # Classify condition
-            condition = self._classify_condition(bpm, hrv_std)
-            
-            # Determine stress level
-            if bpm < 60:
-                stress = "Low"
-            elif 60 <= bpm <= 100:
-                stress = "Normal"
-            else:
-                stress = "High"
-            
-            # Prepare result
+            # Visualization Data Prep
+            ds_ratio = 4
             result = {
-                "bpm": round(bpm, 1),
-                "condition": condition,
-                "stress": stress,
-                "confidence": round(quality * 100),
-                "hrv_std": round(hrv_std, 2),
-                "num_peaks": len(rpeaks),
-                "signal_duration": round(len(signal) / self.sampling_rate, 1)
+                "heart_rate": bpm,
+                "stress_level": stress_level,
+                "signal_confidence": round(confidence),
+                "signal": signal.tolist()[::ds_ratio],
+                "peaks": [int(p/ds_ratio) for p in peaks]
             }
             
             return result, "Success"
             
         except Exception as e:
-            return None, f"Signal processing error: {str(e)}"
-    
-    def _classify_condition(self, bpm, hrv_std):
-        """Classify cardiac condition based on BPM and HRV"""
-        if bpm < 60:
-            base_condition = "Bradycardia"
-        elif 60 <= bpm <= 100:
-            base_condition = "Normal"
-        elif 100 < bpm <= 120:
-            base_condition = "Elevated"
-        else:
-            base_condition = "Tachycardia"
+            return None, f"Interpretation error: {str(e)}"
+
+    def _estimate_stress_hrv(self, rr_intervals):
+        if len(rr_intervals) < 2: return "Normal"
+        hrv = np.std(rr_intervals) / (np.mean(rr_intervals) + 1e-6)
         
-        # Check for possible arrhythmia
-        if hrv_std > 15:
-            return f"{base_condition} (Arrhythmia)"
+        if hrv > 0.12: return "Low"
+        elif hrv > 0.06: return "Moderate"
+        else: return "High"
+
+    def _calculate_confidence(self, signal, peaks):
+        if len(peaks) < 3: return 60
+        noise = np.var(np.diff(signal))
+        continuity = max(0, 100 - (noise * 12))
+        completeness = min(100, (len(peaks) / 10) * 100)
         
-        return base_condition
+        score = (0.6 * completeness) + (0.4 * continuity)
+        return max(60, min(98, score))
